@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ORIA — Portail Écoles</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: linear-gradient(135deg, #1300C8 0%, #4A3DFF 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    }
+    h1 { color: #1300C8; margin-bottom: 8px; font-size: 24px; }
+    .subtitle { color: #6B7280; margin-bottom: 24px; font-size: 14px; }
+    label { display: block; margin: 12px 0 4px; color: #1A1A2E; font-weight: 600; font-size: 14px; }
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #E5E7EB;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    input:focus, select:focus { outline: 2px solid #1300C8; border-color: #1300C8; }
+    button {
+      background: #1300C8;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 24px;
+      font-size: 15px;
+    }
+    button:hover { background: #0F00A0; }
+    button:disabled { background: #B0B7C3; cursor: not-allowed; }
+    .error { color: #EF4444; margin-top: 12px; font-size: 13px; }
+    .success { color: #10B981; margin-top: 12px; font-size: 13px; }
+    .info { background: #FCF8FF; border-left: 3px solid #1300C8; padding: 10px 12px; border-radius: 4px; font-size: 13px; color: #454556; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🏫 Portail Écoles</h1>
+    <p class="subtitle">Envoyez les bulletins trimestriels de vos élèves à ORIA.</p>
+
+    <form id="loginForm">
+      <label>Email de l'école</label>
+      <input type="email" id="email" required placeholder="ecole@lycee.tg">
+
+      <label>Mot de passe</label>
+      <input type="password" id="password" required placeholder="••••••••">
+
+      <button type="submit" id="loginBtn">Se connecter</button>
+      <div id="loginError" class="error"></div>
+    </form>
+
+    <div class="info">
+      💡 Une fois connecté, vous pourrez saisir les notes trimestre par trimestre.
+    </div>
+  </div>
+
+  <script>
+    const API = 'http://localhost:8080/api/v1';
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      const btn = document.getElementById('loginBtn');
+      const err = document.getElementById('loginError');
+      err.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Connexion...';
+
+      try {
+        const res = await fetch(API + '/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, motDePasse: password })
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.message || 'Identifiants invalides');
+        }
+        const data = await res.json();
+        if (data.requires2fa) {
+          throw new Error('2FA requis. Désactivez TOTP pour ce compte école.');
+        }
+        localStorage.setItem('oria_token', data.accessToken);
+        localStorage.setItem('oria_role', (data.roles || []).join(','));
+        localStorage.setItem('oria_email', email);
+        window.location.href = 'bulletins.html';
+      } catch (ex) {
+        err.textContent = '❌ ' + ex.message;
+        btn.disabled = false;
+        btn.textContent = 'Se connecter';
+      }
+    });
+  </script>
+</body>
+</html>

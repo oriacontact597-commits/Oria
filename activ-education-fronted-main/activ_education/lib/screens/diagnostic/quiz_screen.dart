@@ -1,0 +1,932 @@
+// emplacement : lib/screens/diagnostic/quiz_screen.dart
+
+import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
+import '../../theme/app_theme.dart';
+import '../../theme/app_routes.dart';
+import '../../services/api_service.dart';
+import '../../models/models.dart';
+
+class QuizScreen extends StatefulWidget {
+  final String? quizTrackingId;
+  const QuizScreen({super.key, this.quizTrackingId});
+
+  @override
+  State<QuizScreen> createState() => _QuizScreenState();
+}
+
+class _QuizScreenState extends State<QuizScreen>
+    with SingleTickerProviderStateMixin {
+  final _api = ApiService();
+
+  QuizResponse? _quiz;
+  List<QuestionResponse> _questions = [];
+  Map<String, List<ReponseResponse>> _reponsesParQuestion = {};
+  final Map<String, String> _reponsesChoisies = {};
+
+  int _currentIndex = 0;
+  final Map<String, int> _domainAnswerCount = {};
+  static const _riasecCodes = ['R', 'I', 'A', 'S', 'E', 'C'];
+  bool _isLoading = true;
+  bool _isSaving = false;
+  String? _error;
+  List<QuizResponse> _allQuizzes = [];
+  bool _showQuizPicker = false;
+
+  late AnimationController _animController;
+  late Animation<Offset> _slideAnimation;
+  late Animation<double> _fadeAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0.3, 0),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
+    _fadeAnimation =
+        CurvedAnimation(parent: _animController, curve: Curves.easeOut);
+    _loadQuiz();
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
+
+  Future<T?> _safeLoad<T>(Future<T> Function() fn, {T? fallback}) async {
+    try {
+      return await fn().timeout(const Duration(seconds: 10));
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  Future<void> _loadQuiz() async {
+    try {
+      setState(() => _isLoading = true);
+
+      if (widget.quizTrackingId != null) {
+        final quizResult = await _safeLoad(
+          () => _api.getQuiz(widget.quizTrackingId!),
+        );
+        if (!mounted) return;
+        if (quizResult == null) {
+          setState(() { _error = 'Quiz introuvable'; _isLoading = false; });
+          return;
+        }
+        _quiz = quizResult;
+      } else {
+        final page = await _safeLoad(() => _api.listerQuiz(size: 50));
+        if (!mounted) return;
+        final all = page?.content ?? [];
+        if (all.isEmpty) {
+          setState(() { _error = 'Aucun quiz disponible'; _isLoading = false; });
+          return;
+        }
+        if (all.length == 1) {
+          _quiz = all.first;
+        } else {
+          // Deduplicate by title keeping the newest (already sorted desc)
+          final seenTitles = <String>{};
+          final unique = <QuizResponse>[];
+          for (final q in all) {
+            final key = q.titre.toLowerCase().trim();
+            if (seenTitles.add(key)) unique.add(q);
+          }
+          setState(() {
+            _allQuizzes = unique;
+            _showQuizPicker = true;
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+
+      final trackingId = await _api.getTrackingId();
+      final questions = await (trackingId != null
+          ? _safeLoad(
+              () => _api.recommanderQuestions(trackingId, _quiz!.trackingId),
+              fallback: <QuestionResponse>[],
+            )
+          : _safeLoad(
+              () => _api.getQuestionsQuiz(_quiz!.trackingId),
+              fallback: <QuestionResponse>[],
+            ));
+      final questionsSafe = questions ?? [];
+      if (!mounted) return;
+      if (questionsSafe.isEmpty) {
+        setState(() { _error = 'Quiz vide'; _isLoading = false; });
+        return;
+      }
+      _questions = questionsSafe;
+      final reponsesResults = await Future.wait(
+        questionsSafe.map((q) => _safeLoad(
+          () => _api.getReponsesQuestion(q.trackingId),
+          fallback: <ReponseResponse>[],
+        )),
+      );
+      if (!mounted) return;
+      final Map<String, List<ReponseResponse>> repMap = {};
+      for (int i = 0; i < questionsSafe.length; i++) {
+        repMap[questionsSafe[i].trackingId] = reponsesResults[i] ?? [];
+      }
+      setState(() {
+        _reponsesParQuestion = repMap;
+        _currentIndex = 0;
+        _domainAnswerCount.clear();
+        _isLoading = false;
+      });
+      _animController.forward();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          if (e is DioException && e.response?.statusCode == 401) {
+            _error = 'Connectez-vous pour accéder aux quiz';
+          } else {
+            _error = 'Erreur de chargement du quiz';
+          }
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  QuestionResponse? get _currentQuestion =>
+      _questions.isNotEmpty ? _questions[_currentIndex] : null;
+
+  List<ReponseResponse> get _currentReponses {
+    if (_currentQuestion == null) return [];
+    return _reponsesParQuestion[_currentQuestion!.trackingId] ?? [];
+  }
+
+  bool get _hasAnswered =>
+      _currentQuestion != null &&
+      _reponsesChoisies.containsKey(_currentQuestion!.trackingId);
+
+  double get _progress {
+    return _questions.isEmpty ? 0 : _currentIndex / _questions.length;
+  }
+
+  void _selectReponse(String reponseId) {
+    if (_currentQuestion == null) return;
+    setState(() {
+      _reponsesChoisies[_currentQuestion!.trackingId] = reponseId;
+    });
+  }
+
+  void _nextQuestion() async {
+    if (!_hasAnswered) return;
+
+    final reponseId = _reponsesChoisies[_currentQuestion!.trackingId];
+    final reponses = _reponsesParQuestion[_currentQuestion!.trackingId] ?? [];
+    final chosen = reponses.firstWhere(
+      (r) => r.trackingId == reponseId,
+      orElse: () => ReponseResponse(
+          trackingId: '', texteReponse: '', points: 0, questionTrackingId: ''),
+    );
+
+    final cat = chosen.categoriePoint?.toUpperCase();
+    if (cat != null && _riasecCodes.contains(cat)) {
+      _domainAnswerCount[cat] = (_domainAnswerCount[cat] ?? 0) + 1;
+    }
+
+    if (_currentIndex >= _questions.length - 1) {
+      _submitQuiz();
+      return;
+    }
+
+    final nextIdx = _currentIndex + 1;
+    if (chosen.prochaineQuestionTrackingId != null) {
+      final branchIdx = _questions.indexWhere(
+        (q) => q.trackingId == chosen.prochaineQuestionTrackingId, nextIdx);
+      if (branchIdx > nextIdx) {
+        final branchQ = _questions.removeAt(branchIdx);
+        _questions.insert(nextIdx, branchQ);
+      }
+    } else if (_questions.length - nextIdx >= 2) {
+      final after = _questions.sublist(nextIdx);
+      final answered = _questions.sublist(0, nextIdx);
+      after.sort((a, b) {
+        final catA = _bestDomainFor(a);
+        final catB = _bestDomainFor(b);
+        final countA = _domainAnswerCount[catA] ?? 0;
+        final countB = _domainAnswerCount[catB] ?? 0;
+        return countA.compareTo(countB);
+      });
+      _questions = [...answered, ...after];
+    }
+
+    await _animController.reverse();
+    setState(() => _currentIndex = nextIdx);
+    _animController.forward();
+  }
+
+  String _bestDomainFor(QuestionResponse q) {
+    if (q.domaine != null && q.domaine!.isNotEmpty) {
+      return q.domaine!;
+    }
+    final reponses = _reponsesParQuestion[q.trackingId] ?? [];
+    for (final r in reponses) {
+      if (r.categoriePoint != null && _riasecCodes.contains(r.categoriePoint!.toUpperCase())) {
+        return r.categoriePoint!.toUpperCase();
+      }
+    }
+    return q.typeQuestion ?? 'GENERAL';
+  }
+
+  void _previousQuestion() async {
+    if (_currentIndex == 0) return;
+    await _animController.reverse();
+    setState(() => _currentIndex--);
+    _animController.forward();
+  }
+
+  Future<void> _submitQuiz() async {
+    setState(() => _isSaving = true);
+    try {
+      double scoreFinal = 0;
+      for (final entry in _reponsesChoisies.entries) {
+        final reponses = _reponsesParQuestion[entry.key] ?? [];
+        final chosen = reponses.firstWhere(
+          (r) => r.trackingId == entry.value,
+          orElse: () => ReponseResponse(
+              trackingId: '',
+              texteReponse: '',
+              points: 0,
+              questionTrackingId: ''),
+        );
+        scoreFinal += chosen.points;
+      }
+      final profil = _determinerProfil(scoreFinal);
+      final eleveId = await _api.getTrackingId();
+      String? iaRecommandation;
+      if (eleveId != null && _quiz != null) {
+        await _api.enregistrerResultat(ResultatDiagnosticRequest(
+          eleveTrackingId: eleveId,
+          quizTrackingId: _quiz!.trackingId,
+          scoreFinal: scoreFinal,
+          profilDecouvert: profil,
+          recommandation: _getRecommandation(profil),
+        ));
+        iaRecommandation = await _api.getRecommandationIA(eleveId);
+      }
+      setState(() => _isSaving = false);
+      if (mounted) {
+        Navigator.pushReplacementNamed(
+          context,
+          AppRoutes.resultats,
+          arguments: {
+            'score': scoreFinal,
+            'profil': profil,
+            'quizId': _quiz?.trackingId,
+            'eleveId': eleveId,
+            'iaRecommandation': iaRecommandation,
+          },
+        );
+      }
+    } catch (e) {
+      setState(() => _isSaving = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Erreur: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
+  }
+
+  /// Calcule le profil RIASEC à partir des réponses
+  /// R = Réaliste, I = Investigateur, A = Artistique, S = Social, E = Entreprenant, C = Conventionnel
+  Map<String, double> _calculerProfilRIASEC() {
+    final scores = {'R': 0.0, 'I': 0.0, 'A': 0.0, 'S': 0.0, 'E': 0.0, 'C': 0.0};
+
+    for (final entry in _reponsesChoisies.entries) {
+      final reponses = _reponsesParQuestion[entry.key] ?? [];
+      final chosen = reponses.firstWhere(
+        (r) => r.trackingId == entry.value,
+        orElse: () => ReponseResponse(
+            trackingId: '', texteReponse: '', points: 0, questionTrackingId: ''),
+      );
+
+      // La catégorie RIASEC est stockrée dans categoriePoint (ex: 'R', 'I', 'A', 'S', 'E', 'C')
+      final categorie = chosen.categoriePoint;
+      if (categorie != null && scores.containsKey(categorie.toUpperCase())) {
+        scores[categorie.toUpperCase()] = (scores[categorie.toUpperCase()] ?? 0) + chosen.points;
+      }
+    }
+
+    return scores;
+  }
+
+  String _determinerProfil(double score) {
+    final riasec = _calculerProfilRIASEC();
+    final hasRiasec = riasec.values.any((v) => v > 0);
+    if (!hasRiasec) {
+      final total = _questions.length;
+      return 'Score: ${score.toInt()}/$total';
+    }
+
+    // Trouver les 2 dominantes
+    final entries = riasec.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final dominante1 = entries.isNotEmpty ? entries.first.key : 'X';
+    final dominante2 = entries.length > 1 ? entries[1].key : 'X';
+
+    final labelRIASEC = {
+      'R': 'Réaliste',
+      'I': 'Investigateur',
+      'A': 'Artistique',
+      'S': 'Social',
+      'E': 'Entreprenant',
+      'C': 'Conventionnel',
+    };
+
+    return 'Profil ${labelRIASEC[dominante1]} - ${labelRIASEC[dominante2]}';
+  }
+
+  String _getRecommandation(String profil) {
+    if (profil.contains('Réaliste')) {
+      return 'Métiers manuels, technique, ingénierie, agriculture, BTP';
+    }
+    if (profil.contains('Investigateur')) {
+      return 'Sciences, recherche, informatique, santé, analyse';
+    }
+    if (profil.contains('Artistique')) {
+      return 'Arts, design, communication, musique, écriture';
+    }
+    if (profil.contains('Social')) {
+      return 'Enseignement, santé, travail social, ressources humaines';
+    }
+    if (profil.contains('Entreprenant')) {
+      return 'Commerce, management, marketing, entrepreneuriat';
+    }
+    if (profil.contains('Conventionnel')) {
+      return 'Administration, comptabilité, gestion, secrétariat';
+    }
+    return 'Explorez nos différentes filières pour trouver celle qui vous correspond';
+  }
+
+  Widget _buildQuizPicker() {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 20),
+          GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.arrow_back, color: AppColors.primary),
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Choisis un quiz',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textDark,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Sélectionne le quiz que tu veux faire',
+            style: AppTextStyles.bodyMedium,
+          ),
+          const SizedBox(height: 24),
+          Expanded(
+            child: ListView.separated(
+              itemCount: _allQuizzes.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (_, i) {
+                final q = _allQuizzes[i];
+                final t = q.titre;
+                final isRiasec = t.contains('RIASEC');
+                final isPerso = t.contains('Connais-toi');
+
+                Color iconColor;
+                IconData icon;
+                if (isRiasec) {
+                  iconColor = const Color(0xFF8B5CF6);
+                  icon = Icons.psychology_rounded;
+                } else if (isPerso) {
+                  iconColor = AppColors.primary;
+                  icon = Icons.self_improvement_rounded;
+                } else {
+                  iconColor = AppColors.accent;
+                  icon = Icons.school_rounded;
+                }
+
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _quiz = q;
+                      _showQuizPicker = false;
+                      _isLoading = true;
+                    });
+                    _loadQuestionsForQuiz();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: iconColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(icon, color: iconColor, size: 24),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                q.titre,
+                                style: const TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textDark,
+                                ),
+                              ),
+                              if (q.description != null && q.description!.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    q.description!,
+                                    style: AppTextStyles.caption,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${q.nombreQuestions}',
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ),
+                        const Icon(Icons.chevron_right, color: AppColors.textLight),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _loadQuestionsForQuiz() async {
+    try {
+      final trackingId = await _api.getTrackingId();
+      final questions = await (trackingId != null
+          ? _safeLoad(
+              () => _api.recommanderQuestions(trackingId, _quiz!.trackingId),
+              fallback: <QuestionResponse>[],
+            )
+          : _safeLoad(
+              () => _api.getQuestionsQuiz(_quiz!.trackingId),
+              fallback: <QuestionResponse>[],
+            ));
+      final questionsSafe = questions ?? [];
+      if (!mounted) return;
+      if (questionsSafe.isEmpty) {
+        setState(() { _error = 'Quiz vide'; _isLoading = false; });
+        return;
+      }
+      _questions = questionsSafe;
+      final reponsesResults = await Future.wait(
+        questionsSafe.map((q) => _safeLoad(
+          () => _api.getReponsesQuestion(q.trackingId),
+          fallback: <ReponseResponse>[],
+        )),
+      );
+      if (!mounted) return;
+      final Map<String, List<ReponseResponse>> repMap = {};
+      for (int i = 0; i < questionsSafe.length; i++) {
+        repMap[questionsSafe[i].trackingId] = reponsesResults[i] ?? [];
+      }
+      setState(() {
+        _reponsesParQuestion = repMap;
+        _currentIndex = 0;
+        _domainAnswerCount.clear();
+        _isLoading = false;
+      });
+      _animController.forward();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Erreur de chargement';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.backgroundGrey,
+      body: SafeArea(
+        child: _isLoading
+            ? const _QuizSkeleton()
+            : _error != null
+                ? _buildError()
+                : _showQuizPicker
+                    ? _buildQuizPicker()
+                    : Column(
+                    children: [
+                      _buildHeader(),
+                      Expanded(
+                        child: FadeTransition(
+                          opacity: _fadeAnimation,
+                          child: SlideTransition(
+                            position: _slideAnimation,
+                            child: _buildContent(),
+                          ),
+                        ),
+                      ),
+                      _buildFooter(),
+                    ],
+                  ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              GestureDetector(
+                onTap: _showQuitDialog,
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: AppColors.backgroundGrey,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.close_rounded,
+                      color: AppColors.textDark, size: 18),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(_quiz?.titre ?? 'Quiz d\'orientation',
+                        style: AppTextStyles.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    Text('Question ${_reponsesChoisies.length + 1}',
+                        style: AppTextStyles.caption),
+                  ],
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '${_reponsesChoisies.length + 1}',
+                  style: AppTextStyles.caption.copyWith(
+                      color: AppColors.primary, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: _progress,
+              backgroundColor: AppColors.backgroundGrey,
+              valueColor:
+                  const AlwaysStoppedAnimation<Color>(AppColors.primary),
+              minHeight: 6,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    final question = _currentQuestion;
+    if (question == null) return const SizedBox.shrink();
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              'Tes habitudes',
+              style: AppTextStyles.caption.copyWith(
+                  color: AppColors.accent, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: AppColors.accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: const Icon(Icons.lightbulb_outline_rounded,
+                color: AppColors.accent, size: 32),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            question.texteQuestion,
+            style: AppTextStyles.displayMedium.copyWith(fontSize: 20),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 32),
+          ..._currentReponses.map((r) => _ReponseOption(
+                reponse: r,
+                isSelected:
+                    _reponsesChoisies[question.trackingId] == r.trackingId,
+                onTap: () => _selectReponse(r.trackingId),
+              )),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFooter() {
+    final isLast = _currentIndex == _questions.length - 1;
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+      child: Row(
+        children: [
+          if (_currentIndex > 0) ...[
+            GestureDetector(
+              onTap: _previousQuestion,
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.backgroundGrey,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.arrow_back_rounded,
+                    color: AppColors.textMedium, size: 20),
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: SizedBox(
+              height: 52,
+              child: ElevatedButton(
+                onPressed: _hasAnswered && !_isSaving ? _nextQuestion : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor:
+                      _hasAnswered ? AppColors.accent : AppColors.cardBorder,
+                  disabledBackgroundColor: AppColors.cardBorder,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                  elevation: 0,
+                ),
+                child: _isSaving
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2.5, color: Colors.white))
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            isLast ? 'Terminer le quiz' : 'Question suivante',
+                            style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white),
+                          ),
+                          const SizedBox(width: 6),
+                          Icon(
+                              isLast
+                                  ? Icons.check_rounded
+                                  : Icons.arrow_forward_rounded,
+                              color: Colors.white,
+                              size: 18),
+                        ],
+                      ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildError() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.error_outline_rounded,
+              size: 64, color: AppColors.error.withValues(alpha: 0.5)),
+          const SizedBox(height: 16),
+          Text(_error ?? 'Erreur',
+              style: AppTextStyles.headingMedium, textAlign: TextAlign.center),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: _loadQuiz,
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12))),
+            child:
+                const Text('Réessayer', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showQuitDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Quitter le quiz ?', style: AppTextStyles.headingMedium),
+        content: const Text('Ta progression sera perdue.',
+            style: AppTextStyles.bodyMedium),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Continuer',
+                  style: TextStyle(color: AppColors.primary))),
+          TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.pop(context);
+              },
+              child: const Text('Quitter', style: TextStyle(color: AppColors.error))),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReponseOption extends StatelessWidget {
+  final ReponseResponse reponse;
+  final bool isSelected;
+  final VoidCallback onTap;
+  const _ReponseOption(
+      {required this.reponse, required this.isSelected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        decoration: BoxDecoration(
+          color:
+              isSelected ? AppColors.primary.withValues(alpha: 0.06) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+              color: isSelected ? AppColors.primary : AppColors.cardBorder,
+              width: isSelected ? 2 : 1.5),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color:
+                    isSelected ? AppColors.primary : AppColors.backgroundGrey,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.radio_button_unchecked_rounded,
+                  color: isSelected ? Colors.white : AppColors.textMedium,
+                  size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                reponse.texteReponse,
+                style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                    color: isSelected ? AppColors.primary : AppColors.textDark),
+              ),
+            ),
+            if (isSelected)
+              Container(
+                width: 24,
+                height: 24,
+                decoration: const BoxDecoration(
+                    color: AppColors.primary, shape: BoxShape.circle),
+                child: const Icon(Icons.check_rounded,
+                    color: Colors.white, size: 14),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QuizSkeleton extends StatelessWidget {
+  const _QuizSkeleton();
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(height: 80, color: Colors.white),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                const SizedBox(height: 20),
+                Container(
+                    height: 64,
+                    width: 64,
+                    decoration: BoxDecoration(
+                        color: AppColors.cardBorder,
+                        borderRadius: BorderRadius.circular(18))),
+                const SizedBox(height: 24),
+                Container(
+                    height: 24,
+                    decoration: BoxDecoration(
+                        color: AppColors.cardBorder,
+                        borderRadius: BorderRadius.circular(8))),
+                const SizedBox(height: 32),
+                ...List.generate(
+                    4,
+                    (i) => Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        height: 64,
+                        decoration: BoxDecoration(
+                            color: AppColors.cardBorder,
+                            borderRadius: BorderRadius.circular(14)))),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}

@@ -1,0 +1,45 @@
+# Secrets and local env
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Logs
+*.log
+logs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Node / React
+node_modules/
+dist/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+
+# Java / Maven
+target/
+
+# Databases / runtime dumps
+*.mv.db
+*.trace.db
+*.rdb
+
+# Generated ML artifacts / datasets
+models/
+*.joblib
+orientation_outcome_synthetic.csv
+real_dataset.csv
+results_prototype.json
+results_phase5.json
+
+# Local Git metadata backups
+*.git.backup/

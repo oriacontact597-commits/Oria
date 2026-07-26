@@ -1,0 +1,218 @@
+import 'package:flutter/material.dart';
+import '../../theme/app_theme.dart';
+import '../../theme/app_routes.dart';
+import '../../widgets/common_widgets.dart';
+import '../../services/api_service.dart';
+
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLoading = false;
+  bool _obscurePassword = true;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isLoading = true);
+
+    try {
+      final api = ApiService();
+      final token = await api.auth.login(
+        _emailController.text.trim(),
+        _passwordController.text,
+      );
+
+      if (token.requires2fa && token.challengeToken != null) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          Navigator.pushNamed(
+            context,
+            AppRoutes.totpVerify,
+            arguments: {'challengeToken': token.challengeToken, 'email': _emailController.text.trim()},
+          );
+        }
+        return;
+      }
+
+      await api.auth.saveToken(token.accessToken);
+      await api.auth.saveRefreshToken(token.refreshToken);
+      await api.auth.saveUserData(
+        trackingId: token.trackingId,
+        role: token.typeUtilisateur,
+      );
+      if (token.typeUtilisateur.toUpperCase() == 'ELEVE') {
+        try {
+          final profile = await api.auth.getEleve(token.trackingId);
+          await api.auth.saveEleveProfile(profile);
+        } catch (_) {}
+      }
+
+      if (mounted) {
+        setState(() => _isLoading = false);
+        Navigator.pushNamedAndRemoveUntil(
+            context, AppRoutes.home, (route) => false);
+      }
+    } catch (e, st) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        debugPrint('LOGIN ERROR: $e\n$st');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: ${e.toString().substring(0, e.toString().length > 80 ? 80 : e.toString().length)}')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const SizedBox(height: 32),
+
+                  // Logo
+                  ClipOval(
+                    child: Image.asset(
+                      'assets/images/logo2.jpeg',
+                      width: 56,
+                      height: 56,
+                      cacheWidth: 56,
+                      cacheHeight: 56,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        debugPrint('Erreur chargement logo: $error');
+                        return Container(
+                          width: 56,
+                          height: 56,
+                          color: Colors.red,
+                          child: const Icon(Icons.error, color: Colors.white),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  const Text('Bon retour !',
+                      style: AppTextStyles.displayMedium),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Connecte-toi avec ton email',
+                    style: AppTextStyles.bodyLarge,
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Email field
+                  TextFormField(
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    style: AppTextStyles.bodyLarge
+                        .copyWith(color: AppColors.textDark),
+                    validator: (v) =>
+                        (v == null || v.isEmpty) ? 'Email requis' : null,
+                    decoration: const InputDecoration(
+                      hintText: 'ex: prenom@email.com',
+                      prefixIcon: Icon(Icons.email_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Password field
+                  TextFormField(
+                    controller: _passwordController,
+                    obscureText: _obscurePassword,
+                    style: AppTextStyles.bodyLarge
+                        .copyWith(color: AppColors.textDark),
+                    validator: (v) =>
+                        (v == null || v.isEmpty) ? 'Mot de passe requis' : null,
+                    decoration: InputDecoration(
+                      hintText: 'Mot de passe',
+                      prefixIcon: const Icon(Icons.lock_outlined),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                        ),
+                        onPressed: () =>
+                            setState(() => _obscurePassword = !_obscurePassword),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () =>
+                          Navigator.pushNamed(context, AppRoutes.forgotPassword),
+                      child: const Text('Mot de passe oublié ?'),
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+                  PrimaryButton(
+                    label: 'Se connecter',
+                    isLoading: _isLoading,
+                    onPressed: _login,
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  const Text(
+                    'Pas encore de compte ?',
+                    style: AppTextStyles.bodyMedium,
+                  ),
+                  const SizedBox(height: 12),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 54,
+                    child: OutlinedButton(
+                      onPressed: () =>
+                          Navigator.pushNamed(context, AppRoutes.profileSetup),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(
+                            color: AppColors.primary, width: 1.5),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                      child: Text(
+                        'Créer mon compte',
+                        style: AppTextStyles.buttonText
+                            .copyWith(color: AppColors.primary),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

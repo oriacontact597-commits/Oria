@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ORIA — Saisie des bulletins</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #F4F0FA;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    header {
+      background: linear-gradient(135deg, #1300C8, #4A3DFF);
+      color: white;
+      padding: 20px 24px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    h1 { font-size: 22px; }
+    .user-info { font-size: 13px; opacity: 0.9; }
+    .logout {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.4);
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+      margin-bottom: 20px;
+    }
+    h2 { color: #1300C8; margin-bottom: 16px; font-size: 18px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    label { display: block; margin: 8px 0 4px; color: #454556; font-size: 13px; font-weight: 600; }
+    input, select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #E5E7EB;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #E5E7EB; font-size: 14px; }
+    th { background: #FCF8FF; color: #1300C8; font-weight: 600; }
+    td input { padding: 4px 6px; font-size: 13px; }
+    button {
+      background: #1300C8;
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button.secondary { background: #6B7280; }
+    button.danger { background: #EF4444; }
+    button:hover { opacity: 0.9; }
+    .actions { display: flex; gap: 8px; margin-top: 16px; }
+    .msg { padding: 12px; border-radius: 6px; margin-top: 12px; font-size: 14px; }
+    .msg.success { background: #D1FAE5; color: #065F46; }
+    .msg.error { background: #FEE2E2; color: #991B1B; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>📚 Saisie des bulletins</h1>
+        <div class="user-info" id="userInfo"></div>
+      </div>
+      <button class="logout" onclick="logout()">Déconnexion</button>
+    </header>
+
+    <div class="card">
+      <h2>Période du bulletin</h2>
+      <div class="row">
+        <div>
+          <label>Élève (tracking ID UUID)</label>
+          <input type="text" id="studentId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+        </div>
+        <div>
+          <label>Année scolaire</label>
+          <select id="academicYear">
+            <option>2024-2025</option>
+            <option>2025-2026</option>
+          </select>
+        </div>
+        <div>
+          <label>Trimestre</label>
+          <select id="trimester">
+            <option value="1">Trimestre 1</option>
+            <option value="2">Trimestre 2</option>
+            <option value="3">Trimestre 3</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top: 8px;">
+        <label>Établissement (tracking ID UUID)</label>
+        <input type="text" id="establishmentId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Notes par matière</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Matière</th>
+            <th style="width: 80px">Note /20</th>
+            <th style="width: 80px">Moy. classe</th>
+            <th style="width: 60px">Rang</th>
+            <th>Appréciation</th>
+            <th style="width: 40px"></th>
+          </tr>
+        </thead>
+        <tbody id="gradesBody"></tbody>
+      </table>
+      <div class="actions">
+        <button class="secondary" onclick="addRow()">+ Ajouter une matière</button>
+        <button onclick="submitBulletin()">📤 Envoyer le bulletin</button>
+      </div>
+      <div id="result"></div>
+    </div>
+  </div>
+
+  <script>
+    const API = 'http://localhost:8080/api/v1';
+    const token = localStorage.getItem('oria_token');
+    if (!token) { window.location.href = 'index.html'; }
+    document.getElementById('userInfo').textContent =
+      'Connecté : ' + localStorage.getItem('oria_email') + ' (' + localStorage.getItem('oria_role') + ')';
+
+    const defaultSubjects = ['Mathématiques', 'Français', 'Anglais', 'Physique-Chimie', 'SVT', 'Histoire-Géo', 'Philosophie'];
+    defaultSubjects.forEach(addRow);
+
+    function addRow(subject = '', grade = '', avg = '', rank = '', appr = '') {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="text" class="subj" value="${subject}" placeholder="ex. Mathématiques"></td>
+        <td><input type="number" class="grd" value="${grade}" min="0" max="20" step="0.25"></td>
+        <td><input type="number" class="avg" value="${avg}" min="0" max="20" step="0.25"></td>
+        <td><input type="number" class="rnk" value="${rank}" min="1"></td>
+        <td><input type="text" class="apr" value="${appr}" placeholder="ex. Bon trimestre"></td>
+        <td><button class="danger" onclick="this.closest('tr').remove()">×</button></td>
+      `;
+      document.getElementById('gradesBody').appendChild(tr);
+    }
+
+    function logout() {
+      localStorage.clear();
+      window.location.href = 'index.html';
+    }
+
+    async function submitBulletin() {
+      const studentId = document.getElementById('studentId').value.trim();
+      const academicYear = document.getElementById('academicYear').value;
+      const trimester = parseInt(document.getElementById('trimester').value);
+      const establishmentId = document.getElementById('establishmentId').value.trim();
+      const result = document.getElementById('result');
+      result.innerHTML = '';
+
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRe.test(studentId)) { result.innerHTML = '<div class="msg error">❌ Élève : UUID invalide</div>'; return; }
+      if (!uuidRe.test(establishmentId)) { result.innerHTML = '<div class="msg error">❌ Établissement : UUID invalide</div>'; return; }
+
+      const rows = document.querySelectorAll('#gradesBody tr');
+      const grades = [];
+      for (const r of rows) {
+        const subj = r.querySelector('.subj').value.trim();
+        const grd = r.querySelector('.grd').value;
+        if (!subj || grd === '') continue;
+        const grade = parseFloat(grd);
+        if (isNaN(grade) || grade < 0 || grade > 20) {
+          result.innerHTML = `<div class="msg error">❌ Note invalide pour ${subj} (doit être 0-20)</div>`;
+          return;
+        }
+        grades.push({
+          subject: subj,
+          grade: grade,
+          classAverage: r.querySelector('.avg').value ? parseFloat(r.querySelector('.avg').value) : null,
+          rankInClass: r.querySelector('.rnk').value ? parseInt(r.querySelector('.rnk').value) : null,
+          appreciation: r.querySelector('.apr').value.trim() || null
+        });
+      }
+      if (grades.length === 0) { result.innerHTML = '<div class="msg error">❌ Au moins une matière requise</div>'; return; }
+
+      const body = { studentId, academicYear, trimester, establishmentId, grades };
+
+      try {
+        const res = await fetch(API + '/school/bulletins', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) { throw new Error(data.message || data.error || 'Erreur ' + res.status); }
+        result.innerHTML = `<div class="msg success">✅ ${data.gradesInserted} note(s) enregistrée(s) pour l'élève ${studentId.substring(0,8)}… (soumission ${data.submissionId.substring(0,8)}…)</div>`;
+      } catch (ex) {
+        result.innerHTML = '<div class="msg error">❌ ' + ex.message + '</div>';
+      }
+    }
+  </script>
+</body>
+</html>

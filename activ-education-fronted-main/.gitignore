@@ -1,0 +1,60 @@
+# Markdown (no docs in repo)
+*.md
+
+# Env files (secrets)
+# .env
+# .env.*
+
+# Screenshots & old mockups
+ap/
+complet/
+maquette mobile/
+**/maquette mobile/
+
+# Old admin dir (no longer exists)
+activ_education_admin/
+
+# Backup files
+*.backup
+*.backup[0-9]*
+*.bak
+*.orig
+
+# Old Nunito fonts (replaced by Inter + Poppins)
+**/Nunito-*.ttf
+
+# IDE
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Flutter build & cache
+.metadata
+.dart_tool/
+.pub-cache/
+.pub/
+build/
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+app.*.symbols
+app.*.map.json
+/android/app/debug
+/android/app/profile
+/android/app/release
+/coverage/
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.flutter-plugins-dependencies
+
+# Node / Backoffice
+backoffice/node_modules/
+backoffice/dist/
+
+# OS
+.DS_Store
+Thumbs.db
