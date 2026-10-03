@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+  # 1. Base de données PostgreSQL avec l'extension pgvector
+  oria-db:
+    image: pgvector/pgvector:pg16
+    container_name: oria-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: oria_education
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD manquant pour le profil docker}
+    ports:
+      - "5433:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d oria_education" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # 2. Serveur de fichiers MinIO
+  minio:
+    image: minio/minio:latest
+    container_name: oria-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY manquante pour le profil docker}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9002:9000" # Port API S3
+      - "9003:9001" # Port Interface Web
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 3. Cache / Rate Limiting (Redis)
+  redis:
+    image: redis:7-alpine
+    container_name: oria-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 4. L'Application Spring Boot
+  # network_mode: host : en bridge, l'egress sortant du conteneur est black-holé
+  # (iptables/FORWARD hors de notre contrôle) -> Groq/Supabase inaccessibles.
+  # Le réseau hôte donne à l'app l'accès sortant de l'hôte + les ports publiés.
+  app:
+    build: .
+    container_name: oria-app
+    restart: on-failure
+    network_mode: host
+    environment:
+      # Activation du profil docker
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: 20MB
+      SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: 25MB
+      # Variables pour Supabase
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      # Variables pour la Base de données
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # LLM ORIA : Groq (cloud) prioritaire, Ollama local en repli
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
+      # Ollama tourne sur l'hôte (host network -> localhost)
+      OLLAMA_URL: http://localhost:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral:7b-instruct}
+      # Ports publiés par les conteneurs sur l'hôte
+      DB_HOST: localhost
+      DB_PORT: 5433
+      DB_NAME: oria_education
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD manquant pour le profil docker}
+      JWT_SECRET: ${JWT_SECRET}
+      JPA_DDL_AUTO: update
+      SERVER_PORT: 8085
+      # Variables pour MinIO
+      MINIO_URL: http://localhost:9002
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY manquante pour le profil docker}
+      # Variables pour Redis
+      REDIS_HOST: localhost
+      REDIS_PORT: 6380
+      # JWT Expiration
+      JWT_ACCESS_EXPIRATION: ${JWT_ACCESS_EXPIRATION:-900000}
+      JWT_REFRESH_EXPIRATION: ${JWT_REFRESH_EXPIRATION:-604800000}
+    depends_on:
+      oria-db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  db_data:
+  minio_data:
+  redis_data:

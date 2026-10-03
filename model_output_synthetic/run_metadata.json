@@ -1,0 +1,10 @@
+{
+  "dataset_type": "SYNTHETIQUE_NON_REELLE",
+  "dataset_path": "/home/grace/hackaton/donn\u00e9e/dataset_synthetique_togo_calibre_60000.csv",
+  "random_state": 42,
+  "target": "resultat_final",
+  "warning": "Performances non repr\u00e9sentatives de donn\u00e9es r\u00e9elles",
+  "execution_date": "2026-09-29T10:31:07.868139",
+  "best_model": "GradientBoosting",
+  "best_f1": 0.7195538356476212
+}

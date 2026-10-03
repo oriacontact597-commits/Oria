@@ -1,0 +1,23 @@
+{
+  "numeric_features": [
+    "age",
+    "moyenne_bac",
+    "note_mathematiques",
+    "note_francais",
+    "note_anglais",
+    "taux_reference_admission"
+  ],
+  "categorical_features": [
+    "profil_type",
+    "annee_academique",
+    "region",
+    "sexe",
+    "serie_bac",
+    "type_enseignement",
+    "cohorte",
+    "concours_filiere",
+    "etablissement_demande"
+  ],
+  "target": "resultat_final",
+  "random_state": 42
+}

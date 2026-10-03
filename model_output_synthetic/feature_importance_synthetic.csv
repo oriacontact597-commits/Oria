@@ -1,0 +1,61 @@
+feature,importance
+num__taux_reference_admission,0.8639159379748969
+cat__cohorte_CONCOURS,0.05532122063041268
+cat__profil_type_ETUDIANT,0.036401169873682984
+num__note_francais,0.009079675523412309
+num__note_mathematiques,0.008496566346689079
+num__moyenne_bac,0.007509630789889419
+num__note_anglais,0.006544392197469992
+num__age,0.0026932485226383936
+cat__concours_filiere_Medecine,0.0010347617538891743
+cat__etablissement_demande_Université de Kara,0.0006936151126239043
+cat__serie_bac_F1,0.000658302636119611
+cat__serie_bac_F3,0.0006027495021367229
+cat__etablissement_demande_École publique,0.0005990214442198158
+cat__annee_academique_2026-2027,0.0005206234459023873
+cat__profil_type_BACHELIER,0.0004401418146244458
+cat__region_Plateaux,0.00033373354104251993
+cat__serie_bac_F2,0.0003322993151466434
+cat__concours_filiere_EPL-Education,0.0002985479373597034
+cat__cohorte_BAC1,0.00028879645257293265
+cat__region_Grand Lomé,0.0002846178121462089
+cat__concours_filiere_INSE-Economie,0.0002830585871564342
+cat__profil_type_ELEVE_PREMIERE,0.0002742985925824746
+cat__concours_filiere_Lettres,0.00027281073474513606
+cat__etablissement_demande_Institut privé agréé,0.000265549400539738
+cat__concours_filiere_Sciences économiques,0.0002536810687554357
+cat__cohorte_BAC2,0.00022398199715787027
+cat__serie_bac_Ti1,0.00021357900161716624
+cat__concours_filiere_IUT-Gestion,0.0001721651187388097
+cat__annee_academique_2023-2024,0.00016367060649683708
+cat__serie_bac_G3,0.0001530270336422823
+cat__region_Kara,0.00015012227109668865
+cat__region_Centrale,0.00014945580648409215
+cat__annee_academique_2024-2025,0.00014633164515860002
+cat__annee_academique_2021-2022,0.00013336818960417134
+cat__concours_filiere_Droit,0.00013284512931778807
+cat__serie_bac_C,0.0001291685557182461
+cat__annee_academique_2022-2023,0.0001169514864001422
+cat__serie_bac_F4,0.00011426720031604235
+cat__concours_filiere_ESTBA-Sciences,0.00011225664916667444
+cat__serie_bac_D,0.00010739631370743655
+cat__annee_academique_2025-2026,9.608532963268077e-05
+cat__region_Savanes,8.029556742218167e-05
+cat__concours_filiere_EAM-Arts-Metiers,6.51844348179557e-05
+cat__serie_bac_G2,6.055814773074093e-05
+cat__concours_filiere_BAC2,4.172324194733848e-05
+cat__sexe_M,3.9115263171416036e-05
+cat__serie_bac_E,0.0
+cat__serie_bac_A3,0.0
+cat__region_Maritime,0.0
+cat__serie_bac_A4,0.0
+cat__sexe_F,0.0
+cat__serie_bac_G1,0.0
+cat__concours_filiere_BAC1,0.0
+cat__serie_bac_Ti2,0.0
+cat__type_enseignement_GENERAL,0.0
+cat__type_enseignement_TECHNIQUE,0.0
+cat__concours_filiere_ESA-Agronomie,0.0
+cat__concours_filiere_ENFPE-Education,0.0
+cat__concours_filiere_Informatique,0.0
+cat__etablissement_demande_Université de Lomé,0.0

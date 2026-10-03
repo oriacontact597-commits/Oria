@@ -74,7 +74,7 @@ MODELS = {
 }
 
 
-def load_data(path="orientation_outcome_synthetic.csv"):
+def load_data(path="/home/grace/hackaton/donnée/datasets/dataset_phase5_adapte.csv"):
     df = pd.read_csv(path)
     df["target"] = (df["statut"] == "ADMIS").astype(int)
     for col in ["en_favori", "annee_partielle"]:
